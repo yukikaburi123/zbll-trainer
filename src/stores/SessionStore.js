@@ -1,6 +1,6 @@
 import {defineStore} from 'pinia'
 import {computed, reactive, ref, watch} from "vue";
-import {random_element} from "@/helpers/helpers";
+import {random_element, weighted_random_element} from "@/helpers/helpers";
 import {makeScramble} from "@/helpers/scramble_utils"
 
 const statsKey = 'zbll_stats_array';
@@ -72,27 +72,82 @@ export const useSessionStore = defineStore('session', () => {
         return Object.keys(store.keysCount).filter(key => store.keysCount[key] === 0)
     });
 
+    const clamp = (min, max, v) => Math.max(min, Math.min(max, v));
+
+    const getGlobalAvgMs = () => {
+        if (store.stats.length === 0) return 0;
+        const total = store.stats.reduce((sum, s) => sum + s.ms, 0);
+        return total / store.stats.length;
+    }
+
+    const getCaseStats = (key) => {
+        const arr = store.stats.filter(s => s.key === key);
+        const attempts = arr.length;
+        if (attempts === 0) return {attempts: 0, avgMs: 0};
+
+        const total = arr.reduce((sum, s) => sum + s.ms, 0);
+        return {attempts, avgMs: total / attempts};
+    }
+
     // returns key
     const setRandomCase = () => {
         if (store.keys.length === 0) {
             return null;
         }
+
         if (store.recapMode) {
             if (casesWithZeroCount.value.length === 0) {
                 store.recapMode = false
                 return setRandomCase() // recursively return random case with no recap mode
             }
             store.currentKey = random_element(casesWithZeroCount.value)
+
         } else {
             if (Math.random() < 0.2) {
                 // set current key to the least counted one (random if multiple)
                 const minCount = Math.min(...Object.values(store.keysCount))
                 const leastCountedKeys = Object.keys(store.keysCount).filter(key => store.keysCount[key] === minCount)
                 store.currentKey = random_element(leastCountedKeys)
+
             } else {
-                store.currentKey = random_element(store.keys)
+                const globalAvg = getGlobalAvgMs();
+
+                // compute avg times for cases with >=3 attempts
+                const caseAverages = store.keys
+                    .map(key => {
+                        const {attempts, avgMs} = getCaseStats(key);
+                        return {key, attempts, avgMs};
+                    })
+                    .filter(c => c.attempts >= 3);
+
+                // sort slowest first
+                caseAverages.sort((a, b) => b.avgMs - a.avgMs);
+
+                // top 20% worst
+                const worstCount = Math.ceil(caseAverages.length * 0.2);
+                const worstKeys = new Set(caseAverages.slice(0, worstCount).map(c => c.key));
+
+                store.currentKey = weighted_random_element(store.keys, (key) => {
+                    const {attempts, avgMs} = getCaseStats(key);
+
+                    // only start weighting after 2 appearances
+                    if (attempts < 3) return 1;
+
+                    // if we don't have a global average yet, no weighting
+                    if (globalAvg <= 0) return 1;
+
+                    // only boost if in worst 20%
+                    if (!worstKeys.has(key)) return 1;
+
+                    const ratio = avgMs / globalAvg;
+
+                    // stronger scaling: farther from mean = much more likely
+                    // capped at 3.5x
+                    return clamp(1, 3.5, ratio * ratio);
+                });
             }
         }
+
         store.currentScramble = makeScramble(store.currentKey, store.scrambleLength)
     }
 
@@ -160,8 +215,20 @@ export const useSessionStore = defineStore('session', () => {
     // may be undefined
     const currentScramble = computed(() => store.currentScramble)
 
-    return { store, clearSession, setSelectedKeys, stats, deleteResult,
-        observingResult, timerStarted, timerState, getTimerReady, startTimer, stopTimer,
-        startRecap, currentScramble, casesWithZeroCount
+    return {
+        store,
+        clearSession,
+        setSelectedKeys,
+        stats,
+        deleteResult,
+        observingResult,
+        timerStarted,
+        timerState,
+        getTimerReady,
+        startTimer,
+        stopTimer,
+        startRecap,
+        currentScramble,
+        casesWithZeroCount
     }
 });

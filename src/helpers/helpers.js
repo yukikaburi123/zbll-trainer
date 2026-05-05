@@ -20,3 +20,24 @@ export const formatZbllKey = key => {
 export function areSetsEqual(setA, setB) {
     return setA.size === setB.size && [...setA].every(item => setB.has(item));
 }
+export const weighted_random_element = (arr, getWeight) => {
+  let total = 0;
+
+  for (const el of arr) {
+    total += Math.max(0, getWeight(el));
+  }
+
+  // fallback to normal random if all weights are 0
+  if (total <= 0) {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  let r = Math.random() * total;
+
+  for (const el of arr) {
+    r -= Math.max(0, getWeight(el));
+    if (r <= 0) return el;
+  }
+
+  return arr[arr.length - 1];
+};
