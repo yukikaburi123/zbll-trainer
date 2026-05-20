@@ -2,6 +2,7 @@
 import {TimerState, useSessionStore} from "@/stores/SessionStore";
 import {computed, onMounted, ref, watch} from "vue";
 import {msToHumanReadable} from "@/helpers/time_formatter";
+import {cstimerAverage} from "@/helpers/cubing_average";
 import {useSettingsStore} from "@/stores/SettingsStore";
 import {useI18n} from 'vue-i18n'
 const {t} = useI18n()
@@ -18,10 +19,7 @@ const meanMs = computed(() => {
 })
 
 const getAo = (n) => {
-  if (sessionStore.stats().length < n) return 0;
-  const last = sessionStore.stats().slice(-n);
-  const total = last.reduce((sum, s) => sum + s.ms, 0);
-  return total / n;
+  return cstimerAverage(sessionStore.stats(), n);
 }
 
 const ao5 = computed(() => getAo(5))
